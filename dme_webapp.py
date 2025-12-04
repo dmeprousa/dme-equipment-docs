@@ -1,17 +1,6 @@
 """
+"""
 DME EQUIPMENT DOCUMENTATION WEB APP
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Complete web interface for processing DME equipment photos
-
-Features:
-✅ Upload multiple photos (or ZIP file)
-✅ Automatic batch processing (50 docs per folder)
-✅ Real-time progress tracking
-✅ Organized Google Drive folders
-✅ CSV export with all results
-✅ Beautiful, simple UI
-
-Deploy: streamlit run dme_webapp.py
 """
 
 import streamlit as st
@@ -25,9 +14,7 @@ from pathlib import Path
 import pandas as pd
 
 import google.generativeai as genai
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google.oauth2 import service_account  # ← CHANGED
 from googleapiclient.discovery import build
 from PIL import Image
 
@@ -36,8 +23,6 @@ from PIL import Image
 # ============================================================================
 
 GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-OAUTH_CREDENTIALS_FILE = "oauth_credentials.json"
-TOKEN_FILE = "token.json"
 BASE_FOLDER_ID = st.secrets["FOLDER_ID"]
 
 SCOPES = [
@@ -45,7 +30,7 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive'
 ]
 
-BATCH_SIZE = 50  # Documents per operation folder
+BATCH_SIZE = 50
 
 # ============================================================================
 # PAGE CONFIG
@@ -58,7 +43,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Custom CSS
+# Custom CSS (keep your existing CSS here)
 st.markdown("""
 <style>
     .main-header {
@@ -90,29 +75,26 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# AUTHENTICATION
+# AUTHENTICATION (NEW - Service Account)
 # ============================================================================
 
 @st.cache_resource
 def get_credentials():
-    """Get Google OAuth credentials"""
-    creds = None
-    if os.path.exists(TOKEN_FILE):
-        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+    """Get Google credentials from Streamlit secrets (Service Account)"""
+    try:
+        if "gcp_service_account" in st.secrets:
+            creds = service_account.Credentials.from_service_account_info(
+                dict(st.secrets["gcp_service_account"]),
+                scopes=SCOPES
+            )
+            return creds
         else:
-            if os.path.exists(OAUTH_CREDENTIALS_FILE):
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    OAUTH_CREDENTIALS_FILE, SCOPES)
-                creds = flow.run_local_server(port=0)
-            else:
-                st.error("❌ oauth_credentials.json not found!")
-                st.stop()
-        with open(TOKEN_FILE, 'w') as token:
-            token.write(creds.to_json())
-    return creds
+            st.error("❌ Service account not found in secrets!")
+            st.error("Please add [gcp_service_account] to your Streamlit secrets.")
+            st.stop()
+    except Exception as e:
+        st.error(f"❌ Credentials error: {e}")
+        st.stop()
 
 @st.cache_resource
 def get_services():
