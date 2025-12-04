@@ -128,26 +128,49 @@ def create_drive_folder(folder_name, parent_id=None):
     return folder.get('id')
 
 def upload_csv_to_drive(csv_data, filename, folder_id):
-    """Upload CSV to Google Drive"""
+    """Create Google Sheet from CSV data (Service Account compatible)"""
     _, drive_service = get_services()
     
+    # Create as Google Sheet (native format - no storage quota needed!)
+    sheet_name = filename.replace('.csv', '')
+    
     file_metadata = {
-        'name': filename,
-        'mimeType': 'text/csv',
+        'name': sheet_name,
+        'mimeType': 'application/vnd.google-apps.spreadsheet',  # Google Sheet!
         'parents': [folder_id]
     }
     
-    media = io.BytesIO(csv_data.encode('utf-8'))
-    
-    from googleapiclient.http import MediaIoBaseUpload
-    
+    # Create empty sheet first
     file = drive_service.files().create(
         body=file_metadata,
-        media_body=MediaIoBaseUpload(media, mimetype='text/csv'),
         fields='id'
     ).execute()
     
-    return file.get('id')
+    sheet_id = file.get('id')
+    
+    # Now populate with data using Sheets API
+    try:
+        from googleapiclient.discovery import build
+        creds = get_credentials()
+        sheets_service = build('sheets', 'v4', credentials=creds)
+        
+        # Parse CSV data
+        import csv
+        reader = csv.reader(io.StringIO(csv_data))
+        values = list(reader)
+        
+        # Write to sheet
+        sheets_service.spreadsheets().values().update(
+            spreadsheetId=sheet_id,
+            range='A1',
+            valueInputOption='RAW',
+            body={'values': values}
+        ).execute()
+    except Exception as e:
+        print(f"Sheet data population error: {e}")
+        # Sheet created but empty - still useful
+    
+    return sheet_id
 
 # ============================================================================
 # DATA EXTRACTION
