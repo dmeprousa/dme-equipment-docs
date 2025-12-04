@@ -16,6 +16,7 @@ import pandas as pd
 import google.generativeai as genai
 from google.oauth2 import service_account  # ← CHANGED
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
 from PIL import Image
 
 # ============================================================================
@@ -111,23 +112,55 @@ def get_services():
 def create_drive_folder(folder_name, parent_id=None):
     """Create folder in Google Drive"""
     _, drive_service = get_services()
-    
+
     file_metadata = {
         'name': folder_name,
         'mimeType': 'application/vnd.google-apps.folder'
     }
-    
+
     if parent_id:
         file_metadata['parents'] = [parent_id]
-    
+
     folder = drive_service.files().create(
         body=file_metadata,
         fields='id',
         supportsAllDrives=True
     ).execute()
-    
+
     return folder.get('id')
 
+
+def upload_image_to_drive(image_bytes, image_name, folder_id):
+    """Upload image to Google Drive and return file ID and URL"""
+    _, drive_service = get_services()
+
+    # Determine MIME type from filename
+    mime_type = 'image/jpeg'
+    if image_name.lower().endswith('.png'):
+        mime_type = 'image/png'
+
+    # Create file metadata
+    file_metadata = {
+        'name': image_name,
+        'parents': [folder_id]
+    }
+
+    # Create media upload
+    media = MediaIoBaseUpload(
+        io.BytesIO(image_bytes),
+        mimetype=mime_type,
+        resumable=True
+    )
+
+    # Upload file
+    file = drive_service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields='id, webViewLink',
+        supportsAllDrives=True
+    ).execute()
+
+    return file.get('id'), file.get('webViewLink')
 
 
 # ============================================================================
@@ -403,19 +436,27 @@ def process_uploads(uploaded_files):
         
         for img_idx, image in enumerate(operation_images, 1):
             global_idx = (op_idx - 1) * BATCH_SIZE + img_idx
-            
+
             op_status.text(f"Processing: {image['name']} ({img_idx}/{len(operation_images)})")
-            
+
             try:
+                # Upload image to Drive first
+                image_id, image_url = upload_image_to_drive(
+                    image['bytes'],
+                    image['name'],
+                    op_folder_id
+                )
+
                 # Extract
                 data = extract_equipment_data(image['bytes'])
-                
+
                 # Create doc
                 doc_url = create_equipment_doc(data, op_folder_id)
-                
+
                 result = {
                     'operation': op_idx,
                     'image': image['name'],
+                    'image_url': image_url,
                     'device': data['device'],
                     'model': data['model'],
                     'serial': data['serial'],
@@ -423,7 +464,7 @@ def process_uploads(uploaded_files):
                     'doc_url': doc_url,
                     'status': 'SUCCESS'
                 }
-                
+
             except Exception as e:
                 result = {
                     'operation': op_idx,
@@ -431,15 +472,15 @@ def process_uploads(uploaded_files):
                     'error': str(e),
                     'status': 'FAILED'
                 }
-            
+
             operation_results.append(result)
             all_results.append(result)
-            
+
             # Update progress
             op_progress.progress(img_idx / len(operation_images))
             overall_progress.progress(global_idx / len(all_images))
             overall_status.text(f"Overall: {global_idx}/{len(all_images)} images processed")
-            
+
             time.sleep(0.5)  # Rate limiting
         
         
