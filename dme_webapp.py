@@ -122,7 +122,8 @@ def create_drive_folder(folder_name, parent_id=None):
     
     folder = drive_service.files().create(
         body=file_metadata,
-        fields='id'
+        fields='id',
+        supportsAllDrives=True
     ).execute()
     
     return folder.get('id')
@@ -189,7 +190,12 @@ def create_equipment_doc(data, folder_id):
         'parents': [folder_id]
     }
     
-    file = drive_service.files().create(body=file_metadata, fields='id').execute()
+    file = drive_service.files().create(
+        body=file_metadata, 
+        fields='id',
+        supportsAllDrives=True
+    ).execute()
+    
     doc_id = file.get('id')
     
     # Build content
