@@ -150,7 +150,7 @@ def create_drive_folder(folder_name, parent_id=None):
 # ============================================================================
 
 def extract_equipment_data(image_bytes):
-    """Extract equipment data using Gemini"""
+    """Extract equipment data using Gemini - Supports Multiple Devices"""
     
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel('gemini-2.5-flash')
@@ -158,34 +158,50 @@ def extract_equipment_data(image_bytes):
     img = Image.open(io.BytesIO(image_bytes))
     
     prompt = """
-You are analyzing a DME (Durable Medical Equipment) label photo.
+You are analyzing a DME (Durable Medical Equipment) label photo which may contain ONE or MULTIPLE devices or labels.
 
-Extract these fields with HIGH ACCURACY:
+TASK: Identify ALL devices/labels in the image and extract data for EACH one.
 
+Extract these fields for EACH device with HIGH ACCURACY:
 1. Device/Equipment Type: What is this equipment?
 2. Model Number: The model/reference number
 3. Serial Number: The unique serial number (CAREFUL: A≠4, O≠0, I≠1, S≠5)
 4. Manufacturer: Company name (if visible)
 
-Return ONLY valid JSON:
+Return ONLY valid JSON with this structure:
 {
-  "device": "equipment type",
-  "model": "model number",
-  "serial": "serial number",
-  "manufacturer": "manufacturer or n/a"
+  "devices": [
+    {
+      "device": "equipment type",
+      "model": "model number",
+      "serial": "serial number",
+      "manufacturer": "manufacturer"
+    }
+  ]
 }
 """
-    
-    response = model.generate_content([prompt, img])
-    text = response.text.strip()
-    
-    if '```json' in text:
-        text = text.split('```json')[1].split('```')[0].strip()
-    elif '```' in text:
-        text = text.split('```')[1].split('```')[0].strip()
-    
-    data = json.loads(text)
-    return data
+    try:
+        response = model.generate_content([prompt, img])
+        text = response.text.strip()
+        
+        if '```json' in text:
+            text = text.split('```json')[1].split('```')[0].strip()
+        elif '```' in text:
+            text = text.split('```')[1].split('```')[0].strip()
+        
+        data = json.loads(text)
+        
+        # Handle cases where AI might return just a single object instead of list
+        if 'devices' in data and isinstance(data['devices'], list):
+            return data['devices']
+        elif isinstance(data, list):
+            return data
+        else:
+            return [data]
+            
+    except Exception as e:
+        st.error(f"AI Extraction Error: {e}")
+        return []
 
 # ============================================================================
 # DOCUMENT CREATION
@@ -197,7 +213,7 @@ def create_equipment_doc(data, folder_id):
     docs_service, drive_service = get_services()
     
     # Create document
-    doc_title = f"{data['device']} - {data['serial']}"
+    doc_title = f"{data.get('device', 'Unknown')} - {data.get('serial', 'NoSerial')}"
     
     file_metadata = {
         'name': doc_title,
@@ -214,10 +230,10 @@ def create_equipment_doc(data, folder_id):
     doc_id = file.get('id')
     
     # Build content
-    device_line = f"Device: {data['device']}"
-    model_line = f"Model: {data['model']}"
-    serial_line = f"Serial Number: {data['serial']}"
-    manufacturer_line = f"Manufacturer: {data['manufacturer']}"
+    device_line = f"Device: {data.get('device', '')}"
+    model_line = f"Model: {data.get('model', '')}"
+    serial_line = f"Serial Number: {data.get('serial', '')}"
+    manufacturer_line = f"Manufacturer: {data.get('manufacturer', '')}"
     
     device_spaces = " " * max(3, 45 - len(device_line))
     serial_spaces = " " * max(3, 40 - len(serial_line))
@@ -310,7 +326,7 @@ EQUIPMENT HISTORY RECORD
     requests = [{
         'insertText': {
             'location': {'index': end_index},
-            'text': '\n\nCopyright© 1997-2009 The Compliance Team, Inc. ALL RIGHTS RESERVED'
+            'text': '\\n\\nCopyright© 1997-2009 The Compliance Team, Inc. ALL RIGHTS RESERVED'
         }
     }]
     docs_service.documents().batchUpdate(documentId=doc_id, body={'requests': requests}).execute()
@@ -422,23 +438,32 @@ def process_uploads(uploaded_files):
             op_status.text(f"Processing: {image['name']} ({img_idx}/{len(operation_images)})")
             
             try:
-                # Extract
-                data = extract_equipment_data(image['bytes'])
+                # Extract Device List
+                devices = extract_equipment_data(image['bytes'])
                 
-                # Create doc
-                doc_url = create_equipment_doc(data, op_folder_id)
+                if not devices:
+                     # Handle empty list possibility by raising exception or logging
+                     raise Exception("No devices found in image")
                 
-                result = {
-                    'operation': op_idx,
-                    'image': image['name'],
-                    'device': data['device'],
-                    'model': data['model'],
-                    'serial': data['serial'],
-                    'manufacturer': data['manufacturer'],
-                    'doc_url': doc_url,
-                    'status': 'SUCCESS'
-                }
-                
+                for dev_i, data in enumerate(devices):
+                    # Create doc for each device
+                    doc_url = create_equipment_doc(data, op_folder_id)
+                    
+                    device_suffix = f" (Device {dev_i+1})" if len(devices) > 1 else ""
+                    
+                    result = {
+                        'operation': op_idx,
+                        'image': f"{image['name']}{device_suffix}",
+                        'device': data.get('device', ''),
+                        'model': data.get('model', ''),
+                        'serial': data.get('serial', ''),
+                        'manufacturer': data.get('manufacturer', ''),
+                        'doc_url': doc_url,
+                        'status': 'SUCCESS'
+                    }
+                    operation_results.append(result)
+                    all_results.append(result)
+                    
             except Exception as e:
                 result = {
                     'operation': op_idx,
@@ -446,9 +471,8 @@ def process_uploads(uploaded_files):
                     'error': str(e),
                     'status': 'FAILED'
                 }
-            
-            operation_results.append(result)
-            all_results.append(result)
+                operation_results.append(result)
+                all_results.append(result)
             
             # Update progress
             op_progress.progress(img_idx / len(operation_images))
