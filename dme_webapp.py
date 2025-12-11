@@ -163,19 +163,20 @@ You are analyzing a DME (Durable Medical Equipment) label photo which may contai
 TASK: Identify ALL devices/labels in the image and extract data for EACH one.
 
 CRITICAL RULES FOR OXYGEN CYLINDERS/TANKS:
-1. The LARGE alphanumeric code on the white sticker (e.g., "W1063072PB01", "W1063156PB01") is the SERIAL NUMBER (or Lot Number acting as Serial).
+1. The LARGE alphanumeric code on the white sticker (often starting with "W") is the SERIAL NUMBER.
 2. Do NOT confuse this with the Model Number.
-3. If you see a code starting with "W" followed by numbers and "PB", it is almost 100% the SERIAL NUMBER.
+3. If you see a code starting with "W" followed by numbers and "PB", it is likely the SERIAL NUMBER.
 
 CRITICAL RULES FOR BLURRY/UNREADABLE IMAGES:
 1. If the text is too blurry to read with certainty, return "Unreadable" for that field.
 2. DO NOT GUESS or hallucinate numbers.
 3. Only extract characters that are VISIBLE.
+4. DO NOT use example numbers like W1063... found in your training data or previous prompts. READ THE IMAGE ONLY.
 
 Extract these fields for EACH device with HIGH ACCURACY:
 1. Device/Equipment Type: "Oxygen Tank" or equipment name.
 2. Model Number: The model/reference number (often small or not visible on tanks).
-3. Serial Number: The UNIQUE identifier (e.g., W1063072PB01). return "Unreadable" if not clear.
+3. Serial Number: The UNIQUE identifier. Return "Unreadable" if not clear.
 4. Manufacturer: Company name (e.g., Airgas, Invacare).
 
 Return ONLY valid JSON with this structure:
