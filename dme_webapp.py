@@ -167,10 +167,15 @@ CRITICAL RULES FOR OXYGEN CYLINDERS/TANKS:
 2. Do NOT confuse this with the Model Number.
 3. If you see a code starting with "W" followed by numbers and "PB", it is almost 100% the SERIAL NUMBER.
 
+CRITICAL RULES FOR BLURRY/UNREADABLE IMAGES:
+1. If the text is too blurry to read with certainty, return "Unreadable" for that field.
+2. DO NOT GUESS or hallucinate numbers.
+3. Only extract characters that are VISIBLE.
+
 Extract these fields for EACH device with HIGH ACCURACY:
 1. Device/Equipment Type: "Oxygen Tank" or equipment name.
 2. Model Number: The model/reference number (often small or not visible on tanks).
-3. Serial Number: The UNIQUE identifier (e.g., W1063072PB01).
+3. Serial Number: The UNIQUE identifier (e.g., W1063072PB01). return "Unreadable" if not clear.
 4. Manufacturer: Company name (e.g., Airgas, Invacare).
 
 Return ONLY valid JSON with this structure:
